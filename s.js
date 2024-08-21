@@ -4,11 +4,22 @@ const path = require('path');
 const bodyParser = require('body-parser');
 
 const app = express();
-const PORT = 3000;
+const PORT = 49000 + Math.floor(Math.random() * 10000);
 
 app.use(bodyParser.json());
 
 const altsFilePath = path.join(__dirname, 'alts.json');
+const logFilePath = path.join(__dirname, 'server.log');
+
+function logAction(action, details) {
+    const timestamp = new Date().toISOString();
+    const logMessage = `[${timestamp}] ${action}: ${details}\n`;
+    fs.appendFile(logFilePath, logMessage, (err) => {
+        if (err) {
+            console.error('Failed to write to log file:', err);
+        }
+    });
+}
 
 function getCurrentDate() {
     const date = new Date();
@@ -17,8 +28,8 @@ function getCurrentDate() {
 
     const day = date.getDate();
     const daySuffix = (day % 10 === 1 && day !== 11) ? 'st' :
-                      (day % 10 === 2 && day !== 12) ? 'nd' :
-                      (day % 10 === 3 && day !== 13) ? 'rd' : 'th';
+        (day % 10 === 2 && day !== 12) ? 'nd' :
+            (day % 10 === 3 && day !== 13) ? 'rd' : 'th';
 
     return formattedDate.replace(day, day + daySuffix);
 }
@@ -39,7 +50,7 @@ app.post('/generate-alt', (req, res) => {
         const currentDate = getCurrentDate();
 
         // Add the new alt with the creation date
-        alts.push({ 
+        alts.push({
             username: username,
             date: currentDate
         });
@@ -52,14 +63,48 @@ app.post('/generate-alt', (req, res) => {
                 return res.status(500).json({ error: 'Failed to update alts.json' });
             }
 
-            res.json({ 
-                username: alt.username, 
-                password: password, 
-                date: alt.date // Return the date the alt was created
+            logAction('Account Generated', `Username: ${alt.username}, Date: ${alt.date}`);
+            res.json({
+                username: alt.username,
+                password: password,
+                date: alt.date
             });
         });
     });
 });
+
+app.post('/add-alt', (req, res) => {
+    const { username } = req.body;
+
+    if (!username) {
+        return res.status(400).json({ error: 'Username is required' });
+    }
+
+    fs.readFile(altsFilePath, 'utf8', (err, data) => {
+        if (err) {
+            return res.status(500).json({ error: 'Failed to read alts.json' });
+        }
+
+        let alts = JSON.parse(data);
+        const currentDate = getCurrentDate();
+
+        // Add the new alt with the creation date
+        alts.push({
+            username: username,
+            date: currentDate
+        });
+
+        fs.writeFile(altsFilePath, JSON.stringify(alts, null, 2), (err) => {
+            if (err) {
+                return res.status(500).json({ error: 'Failed to update alts.json' });
+            }
+
+            logAction('Alt Added', `Username: ${username}, Date: ${currentDate}`);
+            res.json({ success: true });
+        });
+    });
+});
+
 app.get('/', (req, res) => {
     res.send(`
 <!DOCTYPE html>
@@ -87,17 +132,17 @@ app.get('/', (req, res) => {
 
         .container {
             text-align: center;
-            background-color: #1a1a1a;
-            padding: 30px;
-            border-radius: 16px;
+            background-color: #0c0c0c;
+            padding: 28px;
+            border-radius: 24px;
             box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6);
             min-width: 320px;
             display: inline-block;
-            transition: transform 0.3s ease-in-out;
+            transition: transform 0.1s ease-in-out;
         }
 
         .container:hover {
-            transform: scale(1.05);
+            transform: scale(1);
         }
 
         h1 {
@@ -108,16 +153,16 @@ app.get('/', (req, res) => {
         }
 
         input[type="text"] {
-            background-color: #262626;
+            background-color: #161616;
             color: #ffffff;
-            border: 2px solid #333333;
+            border: 0px solid #ffffff00;
             padding: 12px 20px;
             border-radius: 24px;
             width: calc(100% - 40px);
             margin-bottom: 20px;
             text-align: center;
             font-size: 16px;
-            transition: border-color 0.3s;
+            transition: border-color 0.1s;
         }
 
         input[type="text"]:focus {
@@ -127,6 +172,7 @@ app.get('/', (req, res) => {
 
         ::placeholder {
             color: #888888;
+            font-family: 'Poppins', sans-serif;
             font-size: 16px;
         }
 
@@ -163,13 +209,23 @@ app.get('/', (req, res) => {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+
+        .status-message {
+            color: #ffffff;
+            font-size: 14px;
+            margin-top: 10px;
+            display: none;
+            transition: opacity 0.5s ease;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Roblox Alt Generator</h1>
-        <input type="text" id="usernameInput" placeholder="Enter Username" onkeydown="handleKeyPress(event)" />
+        <input type="text" id="usernameInput" placeholder="Enter Username of New Account" onkeydown="handleKeyPress(event)" />
+        <input type="text" id="altUsernameInput" placeholder="Add Alt without Generating" onkeydown="handleAltKeyPress(event)" />
         <div class="spinner" id="spinner"></div>
+        <div class="status-message" id="statusMessage">Added</div>
         <div class="output" id="output"></div>
     </div>
 
@@ -240,14 +296,60 @@ app.get('/', (req, res) => {
                 output.style.display = 'block';
             }
         }
+
+        function handleAltKeyPress(event) {
+            if (event.key === 'Enter') {
+                addAlt();
+            }
+        }
+
+        async function addAlt() {
+            const username = document.getElementById('altUsernameInput').value.trim();
+            const spinner = document.getElementById('spinner');
+            const statusMessage = document.getElementById('statusMessage');
+
+            if (!username) {
+                return;
+            }
+
+            spinner.style.display = 'block';
+            statusMessage.style.display = 'none';
+
+            try {
+                await fetch('/add-alt', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username })
+                });
+
+                document.getElementById('altUsernameInput').value = ''; // Clear the input box after adding the alt
+
+                setTimeout(() => {
+                    spinner.style.display = 'none';
+                    statusMessage.style.display = 'block';
+                    statusMessage.style.opacity = '1';
+
+                    setTimeout(() => {
+                        statusMessage.style.opacity = '0';
+                        setTimeout(() => {
+                            statusMessage.style.display = 'none';
+                        }, 500);
+                    }, 500);
+                }, 500);
+            } catch (error) {
+                spinner.style.display = 'none';
+                console.error('Failed to add alt:', error);
+            }
+        }
     </script>
 </body>
 </html>
     `);
 });
 
-
-
 app.listen(PORT, () => {
     console.log(`Server is running on http://localhost:${PORT}`);
+    logAction('Server Started', `Server is running on http://localhost:${PORT}`);
 });
