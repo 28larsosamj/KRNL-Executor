@@ -4,17 +4,36 @@ const path = require('path');
 const bodyParser = require('body-parser');
 
 const app = express();
-const PORT = 49000 + Math.floor(Math.random() * 10000);
+const PORT = 3000
 
 app.use(bodyParser.json());
 
 const altsFilePath = path.join(__dirname, 'alts.json');
 const logFilePath = path.join(__dirname, 'server.log');
+app.get('/count', (req, res) => {
+    const filePath = path.join(__dirname, 'alts.json');
+    fs.readFile(filePath, 'utf8', (err, data) => {
+        if (err) {
+            console.error('Error reading file:', err);
+            return res.status(500).send('Internal Server Error');
+        }
+
+        try {
+            const jsonData = JSON.parse(data);
+            const count = jsonData.filter(item => item.username).length;
+            res.json({ count: count });
+                } catch (err) {
+            console.error('Error parsing JSON:', err);
+            res.status(500).send('Internal Server Error');
+        }
+    });
+});
 
 function logAction(action, details) {
     const timestamp = new Date().toISOString();
-    const logMessage = `[${timestamp}] ${action}: ${details}\n`;
-    fs.appendFile(logFilePath, logMessage, (err) => {
+    const logMessage = `[${timestamp}] ${action}: ${details}`;
+    console.log(logMessage);
+    fs.appendFile(logFilePath, logMessage + '\n', (err) => {
         if (err) {
             console.error('Failed to write to log file:', err);
         }
@@ -45,11 +64,8 @@ app.post('/generate-alt', (req, res) => {
         if (err) {
             return res.status(500).json({ error: 'Failed to read alts.json' });
         }
-
         let alts = JSON.parse(data);
         const currentDate = getCurrentDate();
-
-        // Add the new alt with the creation date
         alts.push({
             username: username,
             date: currentDate
@@ -62,8 +78,8 @@ app.post('/generate-alt', (req, res) => {
             if (err) {
                 return res.status(500).json({ error: 'Failed to update alts.json' });
             }
+            logAction('Account Generated', `Username: ${username}, Date: ${currentDate}`);
 
-            logAction('Account Generated', `Username: ${alt.username}, Date: ${alt.date}`);
             res.json({
                 username: alt.username,
                 password: password,
@@ -87,8 +103,6 @@ app.post('/add-alt', (req, res) => {
 
         let alts = JSON.parse(data);
         const currentDate = getCurrentDate();
-
-        // Add the new alt with the creation date
         alts.push({
             username: username,
             date: currentDate
@@ -130,6 +144,25 @@ app.get('/', (req, res) => {
             overflow: hidden;
         }
 
+        input[type="text"] {
+            background-color: #161616;
+            color: #ffffff;
+            border: 0px solid #ffffff00;
+            padding: 12px 20px;
+            border-radius: 24px;
+            width: calc(100% - 40px);
+            margin-bottom: 20px;
+            text-align: center;
+            font-size: 16px;
+            transition: border-color 0.1s, outline 0.1s;
+            caret-color: transparent;
+        }
+
+        input[type="text"]:focus {
+            border-color: #555555;
+            outline: 2px solid #555555;
+        }
+
         .container {
             text-align: center;
             background-color: #0c0c0c;
@@ -150,24 +183,6 @@ app.get('/', (req, res) => {
             margin-bottom: 20px;
             font-weight: 600;
             color: #ffffff;
-        }
-
-        input[type="text"] {
-            background-color: #161616;
-            color: #ffffff;
-            border: 0px solid #ffffff00;
-            padding: 12px 20px;
-            border-radius: 24px;
-            width: calc(100% - 40px);
-            margin-bottom: 20px;
-            text-align: center;
-            font-size: 16px;
-            transition: border-color 0.1s;
-        }
-
-        input[type="text"]:focus {
-            border-color: #555555;
-            outline: none;
         }
 
         ::placeholder {
@@ -217,6 +232,12 @@ app.get('/', (req, res) => {
             display: none;
             transition: opacity 0.5s ease;
         }
+
+        .account-count {
+            color: #888888;
+            font-size: 12px;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -227,129 +248,134 @@ app.get('/', (req, res) => {
         <div class="spinner" id="spinner"></div>
         <div class="status-message" id="statusMessage">Added</div>
         <div class="output" id="output"></div>
+        <div class="account-count" id="accountCount">Account Count: 0</div>
     </div>
 
-    <script>
-        function handleKeyPress(event) {
-            if (event.key === 'Enter') {
-                generateAlt();
-            }
+<script>
+    document.getElementById('usernameInput').addEventListener('input', () => {
+        generateAlt();
+    });
+
+    document.getElementById('altUsernameInput').addEventListener('input', () => {
+        addAlt();
+    });
+
+    async function generateAlt() {
+        const username = document.getElementById('usernameInput').value.trim();
+        const output = document.getElementById('output');
+        const spinner = document.getElementById('spinner');
+
+        if (!username) {
+            output.textContent = 'Please enter a username';
+            output.style.display = 'block';
+            return;
         }
 
-        async function generateAlt() {
-            const username = document.getElementById('usernameInput').value.trim();
-            const output = document.getElementById('output');
-            const spinner = document.getElementById('spinner');
+        spinner.style.display = 'block';
+        output.style.display = 'none';
 
-            if (!username) {
-                output.textContent = 'Please enter a username';
-                output.style.display = 'block';
-                return;
-            }
+        try {
+            const response = await fetch('/generate-alt', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username })
+            });
 
-            spinner.style.display = 'block';
-            output.style.display = 'none';
+            const data = await response.json();
 
-            try {
-                const response = await fetch('/generate-alt', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ username })
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    setTimeout(() => {
-                        spinner.style.display = 'none';
-
-                        // Clear previous output content
-                        while (output.firstChild) {
-                            output.removeChild(output.firstChild);
-                        }
-
-                        // Create new elements for username, password, and date with icons
-                        const usernamePara = document.createElement('p');
-                        usernamePara.innerHTML = "<i class='fas fa-user'></i> " + data.username;
-                        const passwordPara = document.createElement('p');
-                        passwordPara.innerHTML = "<i class='fas fa-lock'></i> " + data.password;
-                        const datePara = document.createElement('p');
-                        datePara.innerHTML = "<i class='fas fa-calendar-alt'></i> " + data.date;
-
-                        // Append new elements to the output div
-                        output.appendChild(usernamePara);
-                        output.appendChild(passwordPara);
-                        output.appendChild(datePara);
-
-                        output.style.display = 'block';
-                    }, 500);
-                } else {
-                    spinner.style.display = 'none';
-                    output.textContent = data.error;
-                    output.style.display = 'block';
-                }
-            } catch (error) {
-                spinner.style.display = 'none';
-                output.textContent = 'An error occurred. Please try again later.';
-                output.style.display = 'block';
-            }
-        }
-
-        function handleAltKeyPress(event) {
-            if (event.key === 'Enter') {
-                addAlt();
-            }
-        }
-
-        async function addAlt() {
-            const username = document.getElementById('altUsernameInput').value.trim();
-            const spinner = document.getElementById('spinner');
-            const statusMessage = document.getElementById('statusMessage');
-
-            if (!username) {
-                return;
-            }
-
-            spinner.style.display = 'block';
-            statusMessage.style.display = 'none';
-
-            try {
-                await fetch('/add-alt', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ username })
-                });
-
-                document.getElementById('altUsernameInput').value = ''; // Clear the input box after adding the alt
-
+            if (response.ok) {
                 setTimeout(() => {
                     spinner.style.display = 'none';
-                    statusMessage.style.display = 'block';
-                    statusMessage.style.opacity = '1';
+                    while (output.firstChild) {
+                        output.removeChild(output.firstChild);
+                    }
+                    const usernamePara = document.createElement('p');
+                    usernamePara.innerHTML = "<i class='fas fa-user'></i> " + data.username;
+                    const passwordPara = document.createElement('p');
+                    passwordPara.innerHTML = "<i class='fas fa-lock'></i> " + data.password;
+                    const datePara = document.createElement('p');
+                    datePara.innerHTML = "<i class='fas fa-calendar-alt'></i> " + data.date;
+                    output.appendChild(usernamePara);
+                    output.appendChild(passwordPara);
+                    output.appendChild(datePara);
 
+                    output.style.display = 'block';
+                }, 500);
+            } else {
+                spinner.style.display = 'none';
+                output.textContent = data.error;
+                output.style.display = 'block';
+            }
+        } catch (error) {
+            spinner.style.display = 'none';
+            output.textContent = 'An error occurred. Please try again later.';
+            output.style.display = 'block';
+        }
+    }
+
+    async function addAlt() {
+        const username = document.getElementById('altUsernameInput').value.trim();
+        const spinner = document.getElementById('spinner');
+        const statusMessage = document.getElementById('statusMessage');
+
+        if (!username) {
+            return;
+        }
+
+        spinner.style.display = 'block';
+        statusMessage.style.display = 'none';
+
+        try {
+            await fetch('/add-alt', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username })
+            });
+
+            document.getElementById('altUsernameInput').value = '';
+
+            setTimeout(() => {
+                spinner.style.display = 'none';
+                statusMessage.textContent = \`\${username}\`;
+                statusMessage.style.display = 'block';
+                statusMessage.style.opacity = '1';
+
+                setTimeout(() => {
+                    statusMessage.style.opacity = '0';
                     setTimeout(() => {
-                        statusMessage.style.opacity = '0';
-                        setTimeout(() => {
-                            statusMessage.style.display = 'none';
-                        }, 500);
+                        statusMessage.style.display = 'none';
                     }, 500);
                 }, 500);
-            } catch (error) {
-                spinner.style.display = 'none';
-                console.error('Failed to add alt:', error);
-            }
+            }, 500);
+        } catch (error) {
+            spinner.style.display = 'none';
+            console.error('Failed to add alt:', error);
         }
-    </script>
+    }
+
+    async function updateAccountCount() {
+        try {
+            const response = await fetch('/count');
+            const data = await response.json();
+            const accountCount = document.getElementById('accountCount');
+            accountCount.textContent = \`Account Count: \${data.count}\`;
+        } catch (error) {
+            console.error('Failed to update account count:', error);
+        }
+    }
+
+    setInterval(updateAccountCount, 500);
+</script>
 </body>
 </html>
     `);
 });
 
+
 app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
     logAction('Server Started', `Server is running on http://localhost:${PORT}`);
 });
